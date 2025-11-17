@@ -1,0 +1,33 @@
+using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.Hosting;
+
+var builder = WebApplication.CreateBuilder(args);
+var app = builder.Build();
+
+// POST /login — заглушка
+app.MapPost("/login", async (HttpContext context) =>
+{
+    var body = await context.Request.ReadFromJsonAsync<LoginRequest>();
+    await context.Response.WriteAsJsonAsync(new
+    {
+        message = "Login endpoint works!",
+        received = body
+    });
+});
+
+// GET /profile — заглушка
+app.MapGet("/profile", () =>
+{
+    return Results.Json(new
+    {
+        message = "Profile endpoint works!",
+        user = new { id = 1, email = "test@example.com" }
+    });
+});
+
+// порт можна задати через змінну середовища PORT, за замовчуванням 3000
+var port = Environment.GetEnvironmentVariable("PORT") ?? "3000";
+app.Run($"http://localhost:{port}");
+
+record LoginRequest(string Email, string Password);
