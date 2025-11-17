@@ -1,38 +1,31 @@
-using System;
-using System.Text;
+using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.Hosting;
 
-namespace Task3
+var builder = WebApplication.CreateBuilder(args);
+var app = builder.Build();
+
+app.MapPost("/login", async (HttpContext context) =>
 {
-    public class Program
+    var body = await context.Request.ReadFromJsonAsync<LoginRequest>();
+    await context.Response.WriteAsJsonAsync(new
     {
-        static void Main()
-        {
-            Console.OutputEncoding = Encoding.UTF8;
-            Console.Write("Введіть ваш вік: ");
-            string input = Console.ReadLine();
-            if (int.TryParse(input, out int age))
-            {
-                string category = ClassifyAge(age);
-                Console.WriteLine(category);
-            }
-            else
-            {
-                Console.WriteLine("Некоректне введення. Введіть ціле число.");
-            }
-        }
+        message = "Login endpoint works!",
+        received = body
+    });
+});
 
-        public static string ClassifyAge(int age)
-        {
-            if (age < 0 || age > 120)
-                return "Нереальний вік";
-            else if (age < 12)
-                return "Ви дитина";
-            else if (age >= 12 && age <= 17)
-                return "Підліток";
-            else if (age >= 17 && age <= 59)
-                return "Дорослий";
-            else
-                return "Пенсіонер";
-        }
-    }
-}
+app.MapGet("/profile", () =>
+{
+    return Results.Json(new
+    {
+        message = "Profile endpoint works!",
+        user = new { id = 1, email = "test@example.com" }
+    });
+});
+
+// порт можна змінити через змінну середовища PORT
+var port = Environment.GetEnvironmentVariable("PORT") ?? "3000";
+app.Run($"http://localhost:{port}");
+
+record LoginRequest(string Email, string Password);
