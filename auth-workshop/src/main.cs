@@ -1,31 +1,88 @@
-using Microsoft.AspNetCore.Builder;
-using Microsoft.AspNetCore.Http;
-using Microsoft.Extensions.Hosting;
+using System.IdentityModel.Tokens.Jwt;
+using System.Security.Claims;
+using System.Text;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.IdentityModel.Tokens;
 
 var builder = WebApplication.CreateBuilder(args);
-var app = builder.Build();
 
-app.MapPost("/login", async (HttpContext context) =>
-{
-    var body = await context.Request.ReadFromJsonAsync<LoginRequest>();
-    await context.Response.WriteAsJsonAsync(new
+var secret = Environment.GetEnvironmentVariable("JWT_SECRET") ?? "dev_secret_change_me";
+var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(secret));
+
+builder.Services
+    .AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+    .AddJwtBearer(options =>
     {
-        message = "Login endpoint works!",
-        received = body
+        options.TokenValidationParameters = new TokenValidationParameters
+        {
+            ValidateIssuer = false,
+            ValidateAudience = false,
+            ValidateIssuerSigningKey = true,
+            IssuerSigningKey = key,
+            ClockSkew = TimeSpan.Zero
+        };
     });
+
+builder.Services.AddAuthorization(options =>
+{
+    options.AddPolicy("AdminOnly", p => p.RequireClaim(ClaimTypes.Role, "admin"));
 });
 
-app.MapGet("/profile", () =>
+var app = builder.Build();
+app.UseAuthentication();
+app.UseAuthorization();
+
+var users = new[]
 {
+    new { Id = 1, Email = "admin@example.com", Password = "admin123", Role = "admin" },
+    new { Id = 2, Email = "user@example.com",  Password = "user123",  Role = "user"  }
+};
+app.MapPost("/login", (dynamic body) =>
+{
+    // Безпечне приведення до string?
+    string? email = (string?)body?.email;
+    string? password = (string?)body?.password;
+
+    // Перевірка на null
+    if (string.IsNullOrEmpty(email) || string.IsNullOrEmpty(password))
+        return Results.BadRequest(new { error = "Email and password are required" });
+
+    var u = users.FirstOrDefault(x => x.Email == email && x.Password == password);
+    if (u is null) return Results.Unauthorized();
+
+    var creds = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
+    var claims = new[]
+    {
+        new Claim(JwtRegisteredClaimNames.Sub, u.Id.ToString()),
+        new Claim(ClaimTypes.Role, u.Role)
+    };
+
+    var jwt = new JwtSecurityToken(
+        claims: claims,
+        expires: DateTime.UtcNow.AddMinutes(15),
+        signingCredentials: creds
+    );
+
+    var token = new JwtSecurityTokenHandler().WriteToken(jwt);
+
     return Results.Json(new
     {
-        message = "Profile endpoint works!",
-        user = new { id = 1, email = "test@example.com" }
+        access_token = token,
+        token_type = "Bearer",
+        expires_in = 900
     });
 });
 
-// порт можна змінити через змінну середовища PORT
-var port = Environment.GetEnvironmentVariable("PORT") ?? "3000";
-app.Run($"http://localhost:{port}");
+app.MapGet("/profile", (ClaimsPrincipal user) =>
+{
+    var sub  = user.FindFirstValue(JwtRegisteredClaimNames.Sub);
+    var role = user.FindFirstValue(ClaimTypes.Role);
+    return Results.Json(new { user_id = sub, role });
+}).RequireAuthorization();
 
-record LoginRequest(string Email, string Password);
+app.MapDelete("/users/{id:int}", (int id) =>
+{
+    return Results.Json(new { message = $"User {id} deleted (demo)" });
+}).RequireAuthorization("AdminOnly");
+
+app.Run();
